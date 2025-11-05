@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required, get_jwt
@@ -8,8 +8,31 @@ import datetime
 
 app = Flask(__name__)
 
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+app.config["MONGO_URI"] = os.getenv("MONGO_URI")
+app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY")
+
+from mongo_config import init_mongo
+mongo = init_mongo(app)
+
+def seed_users():
+    users_col = mongo.db.users
+    if users_col.count_documents({}) == 0:
+        users_col.insert_many([
+            {"username": "admin", "password": generate_password_hash("adminpass"), "roles": ["admin"]},
+            {"username": "client", "password": generate_password_hash("clientpass"), "roles": ["client"]}
+        ])
+        print("✅ Usuarios de ejemplo creados en MongoDB")
+    else:
+        print("ℹ️ Usuarios ya existen en MongoDB")
+
+# Ejecutar semilla al iniciar
+seed_users()
+
 # CONFIG
-app.config["JWT_SECRET_KEY"] = "cambia_esto_por_una_clave_muy_segura_12345"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(hours=1)
 
 jwt = JWTManager(app)
@@ -83,6 +106,7 @@ def index():
 def login():
     if not request.is_json:
         return jsonify({"msg": "JSON esperado"}), 400
+
     data = request.get_json()
     username = data.get("username", "")
     password = data.get("password", "")
@@ -90,11 +114,14 @@ def login():
     if not username or not password:
         return jsonify({"msg": "username y password son requeridos"}), 400
 
-    user = USERS.get(username)
-    if not user or not check_password_hash(user["password_hash"], password):
+    # Buscar usuario en MongoDB
+    user = mongo.db.users.find_one({"username": username})
+
+    if not user or not check_password_hash(user["password"], password):
         return jsonify({"msg": "Credenciales inválidas"}), 401
 
-    additional_claims = {"roles": user["roles"]}
+    # Roles desde Mongo
+    additional_claims = {"roles": user.get("roles", [])}
     access_token = create_access_token(identity=username, additional_claims=additional_claims)
     return jsonify(access_token=access_token), 200
 
@@ -110,9 +137,10 @@ def whoami():
 
 # Admin only
 @app.route("/admin-only", methods=["GET"])
+@jwt_required()
 @role_required(['admin'])
 def admin_only():
-    return jsonify({"msg": "Área de administrador — acceso concedido"}), 200
+    return jsonify({"msg": "Área de administrador — acceso concedido ✅"}), 200
 
 # Manager or admin
 @app.route("/manager-area", methods=["GET"])
@@ -126,6 +154,7 @@ def manager_area():
 def add_user():
     if not request.is_json:
         return jsonify({"msg": "JSON esperado"}), 400
+
     data = request.get_json()
     username = data.get("username")
     password = data.get("password")
@@ -134,20 +163,40 @@ def add_user():
     if not username or not password or not isinstance(roles, list):
         return jsonify({"msg": "username, password y roles (lista) son requeridos"}), 400
 
-    if username in USERS:
+    users_col = mongo.db.users
+
+    # ¿ya existe?
+    if users_col.find_one({"username": username}):
         return jsonify({"msg": "Usuario ya existe"}), 400
 
-    USERS[username] = {
+    users_col.insert_one({
         "username": username,
-        "password_hash": generate_password_hash(password),
+        "password": generate_password_hash(password),
         "roles": roles
-    }
+    })
+
+    return jsonify({
+        "msg": "Usuario creado",
+        "user": {"username": username, "roles": roles}
+    }), 201
 
     # Devolvemos info sin password
     return jsonify({
         "msg": "Usuario creado",
         "user": {"username": username, "roles": roles}
     }), 201
+
+@app.route("/users-view", methods=["GET"])
+@role_required(['admin', 'manager'])  # Solo admin o manager pueden ver la página
+def users_view():
+    # Trae solo username y roles (omite _id para evitar problemas de serialización)
+    users = list(mongo.db.users.find({}, {"_id": 0, "username": 1, "roles": 1}))
+    return render_template("users.html", users=users)
+
+@app.route("/public-users")
+def public_users():
+    users = list(mongo.db.users.find({}, {"_id": 0, "username": 1, "roles": 1}))
+    return render_template("users.html", users=users)
 
 if __name__ == "__main__":
     app.run(debug=True)

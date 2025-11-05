@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Usuarios</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+    h1 { margin-bottom: 1rem; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: .6rem .8rem; text-align: left; }
+    th { background: #f6f6f6; }
+    code { background: #f2f2f2; padding: .2rem .4rem; border-radius: 4px; }
+    .pill { display: inline-block; padding: .1rem .5rem; margin-right: .25rem; border-radius: 999px; background: #eef; }
+  </style>
+</head>
+<body>
+  <h1>Usuarios</h1>
+  <p>Total: <strong>{{ users|length }}</strong></p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Usuario</th>
+        <th>Roles</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        <td><code>{{ u.username }}</code></td>
+        <td>
+          {% for r in u.roles %}
+            <span class="pill">{{ r }}</span>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
